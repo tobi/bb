@@ -83,6 +83,7 @@ const mocks = vi.hoisted(() => ({
   promptBoxProps: [] as Array<Record<string, any>>,
   copyAttachments: vi.fn(),
   createThread: vi.fn(),
+  createDraftThread: vi.fn(),
   uploadAttachment: vi.fn(),
   projectThreads: [] as ThreadListEntry[],
   sidebarNavigationSettled: true,
@@ -100,7 +101,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/hooks/mutations/thread-runtime-mutations", () => ({
   useCreateThread: () => ({ mutateAsync: mocks.createThread }),
-  useCreateDraftThread: () => ({ mutateAsync: vi.fn().mockResolvedValue({}) }),
+  useCreateDraftThread: () => ({ mutateAsync: mocks.createDraftThread }),
 }));
 
 vi.mock("@/views/RootComposePanelCommandHandlers", () => ({
@@ -691,6 +692,7 @@ describe("PluginNewThreadComposer seeding", () => {
     mocks.createThread
       .mockReset()
       .mockResolvedValue({ id: "thr_created", projectId: "proj_1" });
+    mocks.createDraftThread.mockReset().mockResolvedValue({});
     mocks.uploadAttachment.mockReset();
     mocks.projectThreads = [];
     mocks.sidebarNavigationSettled = true;
@@ -1577,9 +1579,11 @@ describe("PluginNewThreadComposer seeding", () => {
       },
     );
     const element = () => (
-      <Provider>
-        <RouterProvider router={router} />
-      </Provider>
+      <StrictMode>
+        <Provider>
+          <RouterProvider router={router} />
+        </Provider>
+      </StrictMode>
     );
     const view = render(element());
     return { router, refresh: () => view.rerender(element()) };
@@ -1717,6 +1721,96 @@ describe("PluginNewThreadComposer seeding", () => {
             environmentProviderId: "project-checkout",
             machine: { type: "existing", hostId: "host_1" },
             inputs: {},
+          },
+        }),
+      ),
+    );
+  });
+
+  it("preserves edited branch inputs when only the model default changes", async () => {
+    const onSubmit = vi.fn();
+    const view = renderComposer(
+      STORED_REQUEST,
+      onSubmit,
+      "model-default-change",
+    );
+    fireEvent.click(await screen.findByTestId("worktree-default-branch"));
+    view.rerender(
+      composerElement(
+        { ...STORED_REQUEST, model: "gpt-5.6" },
+        onSubmit,
+        "model-default-change",
+      ),
+    );
+    await submit();
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "gpt-5.6",
+        environment: expect.objectContaining({ inputs: DEFAULT_BRANCH_INPUTS }),
+      }),
+    );
+  });
+
+  it("retains the native draft and environment inputs after a failed creation", async () => {
+    mocks.createThread.mockRejectedValueOnce(new Error("create failed"));
+    const { router, refresh } = renderRootEnvironment(rootWorktreeEnvironment);
+    await waitFor(() => expect(router.state.location.state).toBeNull());
+    fireEvent.click(await screen.findByTestId("worktree-default-branch"));
+    act(() =>
+      getPromptDraftAccessor({ kind: "new-thread" }).setDraft({
+        text: "Retry this work",
+        mentions: [],
+        attachments: [],
+      }),
+    );
+    await submit();
+    await waitFor(() => {
+      expect(mocks.createThread).toHaveBeenCalledTimes(1);
+      expect(latestPromptBoxProps().isSubmitting).toBe(false);
+      expect(latestPromptBoxProps().value).toBe("Retry this work");
+    });
+    refresh();
+    await submit();
+    await waitFor(() => expect(mocks.createThread).toHaveBeenCalledTimes(2));
+    expect(mocks.createThread.mock.calls[1][0]).toEqual(
+      mocks.createThread.mock.calls[0][0],
+    );
+    expect(mocks.createThread.mock.calls[1][0].environment).toEqual({
+      type: "provider",
+      environmentProviderId: "git-worktree",
+      machine: { type: "existing", hostId: "host_2" },
+      inputs: DEFAULT_BRANCH_INPUTS,
+    });
+  });
+
+  it("submits the visible fallback machine when the requested machine is unavailable", async () => {
+    const { router } = renderRootEnvironment({
+      type: "host",
+      hostId: "host_removed",
+      workspace: { type: "managed-worktree", baseBranch: { kind: "default" } },
+    });
+    await waitFor(() => {
+      expect(router.state.location.state).toBeNull();
+      expect(
+        latestPromptBoxProps().modeConfig.environment.selectedProviderHostId,
+      ).toBe("host_1");
+    });
+    act(() =>
+      getPromptDraftAccessor({ kind: "new-thread" }).setDraft({
+        text: "Use the visible machine",
+        mentions: [],
+        attachments: [],
+      }),
+    );
+    await submit();
+    await waitFor(() =>
+      expect(mocks.createThread).toHaveBeenCalledWith(
+        expect.objectContaining({
+          environment: {
+            type: "provider",
+            environmentProviderId: "git-worktree",
+            machine: { type: "existing", hostId: "host_1" },
+            inputs: DEFAULT_BRANCH_INPUTS,
           },
         }),
       ),

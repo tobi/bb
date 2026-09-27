@@ -619,6 +619,11 @@ export function NewThreadComposer({
     seed?.permissionMode ?? null,
     seed?.environment ?? null,
   ]);
+  const environmentSeedSignature = JSON.stringify([
+    projectId,
+    resetKey ?? null,
+    seed?.environment ?? null,
+  ]);
   const environmentSeed = useMemo(
     () =>
       seed?.environment === undefined
@@ -879,6 +884,22 @@ export function NewThreadComposer({
     supportsServiceTier,
     clearReuseEnvironment,
   } = creationOptions;
+  const appliedEnvironmentSeed = useRef<string | null>(null);
+  useEffect(() => {
+    if (selectionScope !== "new-thread" || seed?.environment === undefined) {
+      appliedEnvironmentSeed.current = null;
+      return;
+    }
+    if (appliedEnvironmentSeed.current === environmentSeedSignature) return;
+    appliedEnvironmentSeed.current = environmentSeedSignature;
+    setCreationEnvironmentSelectionValue(environmentSeed?.selectionValue ?? "");
+  }, [
+    selectionScope,
+    seed?.environment,
+    environmentSeed,
+    environmentSeedSignature,
+    setCreationEnvironmentSelectionValue,
+  ]);
   const selectedThreadModel = activeModel?.model ?? selectedModel;
   const providerIds = useMemo(
     () => providerOptions.map((option) => option.value),
@@ -1094,7 +1115,7 @@ export function NewThreadComposer({
     useState<{ scopeKey: string; value: JsonValue | null } | null>(null);
   const [environmentProviderInputsBlocked, setProviderInputsBlocked] =
     useState<{ scopeKey: string; reason: string } | null>(null);
-  const environmentProviderInputsScopeKey = `${seedSignature}\0${effectiveEnvironmentValue}\0${providerHostId ?? ""}`;
+  const environmentProviderInputsScopeKey = `${environmentSeedSignature}\0${effectiveEnvironmentValue}\0${providerHostId ?? ""}`;
   const handleProviderInputsChange = useCallback(
     (next: PluginEnvironmentProviderInputsChange) => {
       if (next.status === "blocked") {

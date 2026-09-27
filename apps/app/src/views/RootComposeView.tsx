@@ -23,7 +23,7 @@ import type {
   SidebarBootstrapResponse,
   TerminalSession,
 } from "@bb/server-contract";
-import { createThreadEnvironmentArgsSchema } from "@bb/server-contract";
+import { newThreadEnvironmentSeedSchema } from "@/lib/new-thread-environment-seed";
 import {
   NewThreadComposer,
   type NewThreadComposerState,
@@ -94,7 +94,6 @@ import {
   subscribeComposerFocusRequests,
 } from "@/lib/composer-focus-requests";
 import { PluginComposerHostProvider } from "@/components/plugin/plugin-composer-host";
-import { newThreadEnvironmentArgsToSeed } from "@/components/plugin/new-thread-environment-seed";
 import type { PromptMentionLinkResolver } from "@/components/promptbox/editor/prompt-mention-link";
 import { useQuickCreateProjectController } from "@/hooks/useQuickCreateProject";
 import {
@@ -368,14 +367,10 @@ export function readRootComposeEnvironmentTargetFromLocationState(
     state !== null &&
     "newThreadEnvironment" in state
   ) {
-    const environment = createThreadEnvironmentArgsSchema.safeParse(
+    const environment = newThreadEnvironmentSeedSchema.safeParse(
       state.newThreadEnvironment,
     );
-    if (
-      environment.success &&
-      (environment.data.type !== "host" ||
-        environment.data.hostId !== undefined)
-    )
+    if (environment.success)
       return { kind: "environment", environment: environment.data };
   }
   const hostId = readNewEnvironmentHostIdFromLocationState(state);
@@ -830,23 +825,8 @@ function RootComposeSurface({
   const searchInitialDraft = useInitialPromptDraft(searchInitialPrompt);
   const stateInitialDraft = useInitialPromptDraft(stateInitialPrompt);
   const consumedTargetKey = useRef<string | null>(null);
-  const appliedEnvironmentSeed = useRef<string | null>(null);
   const setPromptDraft = promptDraft.setDraft;
   const restorePromptDraftIfEmpty = promptDraft.restoreIfEmpty;
-
-  useEffect(() => {
-    if (environmentSeed === null) {
-      appliedEnvironmentSeed.current = null;
-      return;
-    }
-    const key = `${environmentSeed.key}\0${projectId}`;
-    if (appliedEnvironmentSeed.current === key) return;
-    appliedEnvironmentSeed.current = key;
-    seedEnvironmentSelectionValue(
-      newThreadEnvironmentArgsToSeed(environmentSeed.environment)
-        ?.selectionValue ?? "",
-    );
-  }, [environmentSeed, projectId, seedEnvironmentSelectionValue]);
 
   useEffect(() => {
     const initialPrompt = readInitialPromptFromSearch(location.search);
